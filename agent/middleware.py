@@ -157,12 +157,37 @@ class HallucinationLeakageGuard(AgentMiddleware):
 
         return modified, findings
 
+    def _scan_response(self, response: AIMessage) -> list[dict]:
+        """Scan an AIMessage's content (str or list-of-blocks) and redact in place.
+
+        Returns the aggregated list of findings across all scanned text.
+        """
+        all_findings: list[dict] = []
+
+        if isinstance(response.content, str):
+            modified_content, findings = self._check_response(response.content)
+            if findings:
+                response.content = modified_content
+                all_findings.extend(findings)
+        elif isinstance(response.content, list):
+            for block in response.content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and isinstance(block.get("text"), str)
+                ):
+                    modified_text, findings = self._check_response(block["text"])
+                    if findings:
+                        block["text"] = modified_text
+                        all_findings.extend(findings)
+
+        return all_findings
+
     def wrap_model_call(self, request, handler):
         response = handler(request)
 
-        if isinstance(response, AIMessage) and isinstance(response.content, str):
-            modified_content, findings = self._check_response(response.content)
-
+        if isinstance(response, AIMessage):
+            findings = self._scan_response(response)
             if findings:
                 _save_audit_entry({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -170,16 +195,14 @@ class HallucinationLeakageGuard(AgentMiddleware):
                     "action": "content_redacted",
                     "findings": findings,
                 })
-                response.content = modified_content
 
         return response
 
     async def awrap_model_call(self, request, handler):
         response = await handler(request)
 
-        if isinstance(response, AIMessage) and isinstance(response.content, str):
-            modified_content, findings = self._check_response(response.content)
-
+        if isinstance(response, AIMessage):
+            findings = self._scan_response(response)
             if findings:
                 _save_audit_entry({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -187,6 +210,5 @@ class HallucinationLeakageGuard(AgentMiddleware):
                     "action": "content_redacted",
                     "findings": findings,
                 })
-                response.content = modified_content
 
         return response
