@@ -21,11 +21,12 @@ AUDIT_LOG_PATH = os.path.join(os.path.dirname(__file__), "output", "audit_log.js
 PII_PATTERNS = {
     "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
     "ssn": re.compile(r"\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b"),
-    "dob": re.compile(
+    "dob_verbose": re.compile(
         r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)"
         r"\s+\d{1,2},?\s+\d{4}\b",
         re.IGNORECASE,
     ),
+    "dob_numeric": re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-](?:19|20)\d{2}\b"),
     "member_id": re.compile(r"\bPAT-\d{8}\b"),
 }
 
@@ -143,9 +144,14 @@ class HallucinationLeakageGuard(AgentMiddleware):
     def _check_response(self, content: str) -> tuple[str, list[dict]]:
         """Check response content for leakage. Returns (modified_content, findings)."""
         findings = []
-        modified = content
 
-        content_lower = content.lower()
+        # Output-side patient PII redaction (parity with the tool-output guard).
+        # Without this, the LLM's synthesized report can re-emit patient DOBs and
+        # member IDs even when the tool-output guard caught them upstream.
+        modified, pii_findings = _redact_pii(content)
+        findings.extend(pii_findings)
+
+        content_lower = modified.lower()
         for term in INTERNAL_TERMS:
             if term.lower() in content_lower:
                 findings.append({
@@ -157,12 +163,10 @@ class HallucinationLeakageGuard(AgentMiddleware):
 
         return modified, findings
 
-    def wrap_model_call(self, request, handler):
-        response = handler(request)
-
-        if isinstance(response, AIMessage) and isinstance(response.content, str):
+    def _apply_to_response(self, response: AIMessage) -> None:
+        """Mutate `response.content` in place across str and list-block shapes."""
+        if isinstance(response.content, str):
             modified_content, findings = self._check_response(response.content)
-
             if findings:
                 _save_audit_entry({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -171,22 +175,38 @@ class HallucinationLeakageGuard(AgentMiddleware):
                     "findings": findings,
                 })
                 response.content = modified_content
+        elif isinstance(response.content, list):
+            # AIMessage.content is a list of content blocks during tool-using
+            # turns. Walk text blocks and redact each in place.
+            all_findings: list[dict] = []
+            changed = False
+            for block in response.content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and isinstance(block.get("text"), str)
+                ):
+                    modified_text, findings = self._check_response(block["text"])
+                    if findings:
+                        block["text"] = modified_text
+                        all_findings.extend(findings)
+                        changed = True
+            if changed:
+                _save_audit_entry({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "guardrail": "hallucination_leakage_guard",
+                    "action": "content_redacted_list",
+                    "findings": all_findings,
+                })
 
+    def wrap_model_call(self, request, handler):
+        response = handler(request)
+        if isinstance(response, AIMessage):
+            self._apply_to_response(response)
         return response
 
     async def awrap_model_call(self, request, handler):
         response = await handler(request)
-
-        if isinstance(response, AIMessage) and isinstance(response.content, str):
-            modified_content, findings = self._check_response(response.content)
-
-            if findings:
-                _save_audit_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "guardrail": "hallucination_leakage_guard",
-                    "action": "content_redacted",
-                    "findings": findings,
-                })
-                response.content = modified_content
-
+        if isinstance(response, AIMessage):
+            self._apply_to_response(response)
         return response
