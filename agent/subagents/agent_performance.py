@@ -30,6 +30,12 @@ agent_performance_subagent = {
         '  "improvements": ["..."]\n'
         "}\n"
         "```\n\n"
+        "GROUNDING: Do NOT state a drug class, therapeutic category, or definitive "
+        "drug-drug interaction in any field (including evidence, notes, strengths, "
+        "or improvements) unless that exact phrasing appears verbatim in the SOP "
+        "or AE-reporting SKILL.md files you read. Do NOT escalate cautious "
+        "phrasing into definitive interaction claims. If a medication's class is "
+        "not stated in the source files, refer to it by name only.\n\n"
         "Two file reads, then respond with ONLY the JSON. No prose."
     ),
     "model": "claude-haiku-4-5-20251001",
