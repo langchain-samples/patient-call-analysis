@@ -15,13 +15,16 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
 
 from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
 from subagents.agent_performance import agent_performance_subagent
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
+from middleware import (
+    PIIDetectionMiddleware,
+    HallucinationLeakageGuard,
+    ForbiddenToolGuard,
+)
 from prompts import ORCHESTRATOR_PROMPT
 
 graph = create_deep_agent(
@@ -34,7 +37,12 @@ graph = create_deep_agent(
         topic_and_ae_subagent,
         agent_performance_subagent,
     ],
-    backend=FilesystemBackend(root_dir=_AGENT_DIR, virtual_mode=True),
+    # Drop deepagents built-in fs tools — the orchestrator must not write files.
+    backend=None,
     skills=[os.path.join(_AGENT_DIR, "skills") + "/"],
-    middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+    middleware=[
+        PIIDetectionMiddleware(),
+        HallucinationLeakageGuard(),
+        ForbiddenToolGuard(),
+    ],
 )

@@ -8,7 +8,6 @@ subagents, tools, skills, middleware, and memory wiring.
 import os
 
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 
@@ -16,7 +15,11 @@ from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
 from subagents.agent_performance import agent_performance_subagent
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
+from middleware import (
+    PIIDetectionMiddleware,
+    HallucinationLeakageGuard,
+    ForbiddenToolGuard,
+)
 from prompts import ORCHESTRATOR_PROMPT
 
 _AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,11 +49,19 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
             topic_and_ae_subagent,
             agent_performance_subagent,
         ],
-        backend=FilesystemBackend(root_dir=_AGENT_DIR, virtual_mode=True),
+        # Drop deepagents built-in fs tools — the orchestrator must not write
+        # files, and exposing them inflates prompt tokens and pollutes the
+        # trajectory. ForbiddenToolGuard is a belt-and-suspenders defense in
+        # case a future refactor re-introduces them.
+        backend=None,
         skills=[os.path.join(_AGENT_DIR, "skills") + "/"],
         store=store,
         checkpointer=MemorySaver(),
-        middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+        middleware=[
+            PIIDetectionMiddleware(),
+            HallucinationLeakageGuard(),
+            ForbiddenToolGuard(),
+        ],
     )
 
     return agent, store

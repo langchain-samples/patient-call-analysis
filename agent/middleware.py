@@ -1,11 +1,14 @@
 """
 Guardrail middleware for the patient call analysis agent.
 
-Two middleware classes:
+Three middleware classes:
   1. PIIDetectionMiddleware — wrap_tool_call: redacts patient PII
      (phone numbers, SSNs, DOBs) from tool outputs before the LLM sees them.
   2. HallucinationLeakageGuard — wrap_model_call: scans LLM responses for
      hallucinated patient data and internal company information leakage.
+  3. ForbiddenToolGuard — wrap_tool_call: rejects calls to the deepagents
+     built-in filesystem tools (write_todos / write_file / read_file /
+     edit_file / ls) so the orchestrator can never write files.
 """
 
 import json
@@ -28,6 +31,14 @@ PII_PATTERNS = {
     ),
     "member_id": re.compile(r"\bPAT-\d{8}\b"),
 }
+
+FORBIDDEN_TOOL_NAMES = frozenset({
+    "write_todos",
+    "write_file",
+    "read_file",
+    "edit_file",
+    "ls",
+})
 
 INTERNAL_TERMS = [
     "Project Titan",
@@ -190,3 +201,43 @@ class HallucinationLeakageGuard(AgentMiddleware):
                 response.content = modified_content
 
         return response
+
+
+class ForbiddenToolGuard(AgentMiddleware):
+    """Blocks the orchestrator from invoking deepagents built-in filesystem tools.
+
+    The orchestrator's job is "transcribe -> fan out -> synthesize" and the
+    prompt explicitly forbids writing files. If a call to one of
+    ``FORBIDDEN_TOOL_NAMES`` somehow reaches ``wrap_tool_call`` (e.g. because a
+    future refactor re-exposes the deepagents built-ins), short-circuit with a
+    ``ToolMessage`` error so the model recovers without executing the tool.
+    Each rejection is recorded to the audit log.
+    """
+
+    tools = []
+
+    def _reject(self, request) -> ToolMessage:
+        tool_name = request.tool_call["name"]
+        _save_audit_entry({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "guardrail": "forbidden_tool_guard",
+            "tool": tool_name,
+            "action": "tool_call_blocked",
+        })
+        return ToolMessage(
+            content=(
+                f"ERROR: tool '{tool_name}' is not allowed for this orchestrator. "
+                "Return the report as your final message."
+            ),
+            tool_call_id=request.tool_call["id"],
+        )
+
+    def wrap_tool_call(self, request, handler):
+        if request.tool_call["name"] in FORBIDDEN_TOOL_NAMES:
+            return self._reject(request)
+        return handler(request)
+
+    async def awrap_tool_call(self, request, handler):
+        if request.tool_call["name"] in FORBIDDEN_TOOL_NAMES:
+            return self._reject(request)
+        return await handler(request)
