@@ -38,6 +38,14 @@ topic_and_ae_subagent = {
         '  "risk_summary": "<brief 1-sentence risk assessment>"\n'
         "}\n"
         "```\n\n"
+        "GROUNDING: Do NOT state a drug class, therapeutic category, or definitive "
+        "drug-drug interaction in any field (including risk_summary) unless that "
+        "exact phrasing appears in the JSON returned by extract_topics, "
+        "detect_adverse_events, or detect_technical_complaints. Do NOT escalate "
+        "cautious phrasing like 'may compound hypotensive effects' into "
+        "'drug-drug interaction', 'antihypertensive', 'cardiovascular', or any "
+        "definitive interaction claim. If a medication's class is not in tool "
+        "output, refer to it by name only.\n\n"
         "Do NOT make extra tool calls. Three calls total, then respond with ONLY the JSON. No prose."
     ),
     "model": "claude-haiku-4-5-20251001",
