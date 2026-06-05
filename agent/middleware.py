@@ -8,6 +8,7 @@ Two middleware classes:
      hallucinated patient data and internal company information leakage.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage, AIMessage
 
 AUDIT_LOG_PATH = os.path.join(os.path.dirname(__file__), "output", "audit_log.json")
+os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)
 
 PII_PATTERNS = {
     "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
@@ -51,11 +53,15 @@ def _load_audit_log() -> list:
 
 
 def _save_audit_entry(entry: dict):
-    os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)
     log = _load_audit_log()
     log.append(entry)
     with open(AUDIT_LOG_PATH, "w") as f:
         json.dump(log, f, indent=2)
+
+
+async def _async_save_audit_entry(entry: dict):
+    """Run blocking audit-log I/O off the event loop."""
+    await asyncio.to_thread(_save_audit_entry, entry)
 
 
 def _redact_pii(text: str) -> tuple[str, list[dict]]:
@@ -114,7 +120,7 @@ class PIIDetectionMiddleware(AgentMiddleware):
 
             if findings:
                 tool_name = request.tool_call["name"]
-                _save_audit_entry({
+                await _async_save_audit_entry({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "guardrail": "pii_detection",
                     "tool": tool_name,
@@ -181,7 +187,7 @@ class HallucinationLeakageGuard(AgentMiddleware):
             modified_content, findings = self._check_response(response.content)
 
             if findings:
-                _save_audit_entry({
+                await _async_save_audit_entry({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "guardrail": "hallucination_leakage_guard",
                     "action": "content_redacted",
