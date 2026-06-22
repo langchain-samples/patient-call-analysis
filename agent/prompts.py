@@ -20,6 +20,17 @@ ORCHESTRATOR_PROMPT = (
     "- Keep your synthesis concise: use the subagent data, don't re-analyze\n"
     "- Do NOT write files — return the report as your final message\n\n"
 
+    "PII REVIEW LOOP — HARD LIMIT:\n"
+    "- You may call review_report_for_pii at most 3 times per report.\n"
+    "- PII is defined ONLY as phone numbers, SSNs, DOBs, member IDs (PAT-NNNNNNNN),\n"
+    "  and full patient names — matching the four categories in PII_PATTERNS in\n"
+    "  agent/middleware.py.\n"
+    "- Drug names, dosages, physician names, facility names, and timestamps are\n"
+    "  clinical context and are NOT PII — do not strip them.\n"
+    "- If the 3rd review still returns fail, emit the most-redacted draft and\n"
+    "  append the literal line: 'NOTE: PII review did not converge after 3 iterations'\n"
+    "  so a human reviewer can audit. Do NOT keep redacting and resubmitting.\n\n"
+
     "REPORT STRUCTURE:\n"
     "## Call Analysis Report\n"
     "### 1. Call Summary\n"
