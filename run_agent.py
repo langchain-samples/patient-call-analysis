@@ -17,6 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agent"))
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+from langsmith.run_helpers import tracing_context
+
 from deep_agent import create_orchestrator
 
 
@@ -42,10 +44,11 @@ def main():
 
     print("Starting patient call analysis...\n")
 
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": user_message}]},
-        config=config,
-    )
+    with tracing_context(metadata={"environment": os.environ.get("ENVIRONMENT", "development")}):
+        result = agent.invoke(
+            {"messages": [{"role": "user", "content": user_message}]},
+            config=config,
+        )
 
     final_message = result["messages"][-1].content
     print(final_message)

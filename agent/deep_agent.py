@@ -9,8 +9,10 @@ import os
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
+from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
+from langsmith.wrappers import wrap_anthropic
 
 from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
@@ -36,9 +38,12 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
     if store is None:
         store = InMemoryStore()
 
+    llm = ChatAnthropic(model=model)
+    wrap_anthropic(llm)
+
     agent = create_deep_agent(
         name="call-analysis-orchestrator",
-        model=model,
+        model=llm,
         system_prompt=ORCHESTRATOR_PROMPT,
         tools=[transcribe_call],
         subagents=[
