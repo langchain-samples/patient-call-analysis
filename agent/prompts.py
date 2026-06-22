@@ -18,7 +18,9 @@ ORCHESTRATOR_PROMPT = (
     "- Do NOT include raw patient PII (phone numbers, SSNs, DOBs) in the report\n"
     "- Subagents return structured JSON — incorporate their data directly\n"
     "- Keep your synthesis concise: use the subagent data, don't re-analyze\n"
-    "- Do NOT write files — return the report as your final message\n\n"
+    "- Do NOT write files — return the report as your final message\n"
+    "- After `review_report_for_pii` returns `pass`, your final assistant message MUST be the EXACT report text that was submitted to that passing review call — character-for-character. Do not expand, summarize, rephrase, or append additional sections, sentiment analysis, severity classifications, agent performance scoring, or recommendations that were not in the reviewed text. If you believe the reviewed version is too brief or low-quality, do not edit the output — instead, redraft the report and submit the new draft to `review_report_for_pii` again. The gate only protects content that passes through it.\n"
+    "- Do not narrate the review process in the user-facing output. Your final assistant message contains the Call Analysis Report and only the report. No preamble ('Perfect!', 'Great!', 'Here is the final analysis:', 'The report has passed PII review', 'Below is the report'). No trailing commentary about retries, expansion, or PII compliance. The first character of the final message should be the first character of the report's markdown.\n\n"
 
     "REPORT STRUCTURE:\n"
     "## Call Analysis Report\n"
