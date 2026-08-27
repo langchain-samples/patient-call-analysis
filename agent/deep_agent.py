@@ -11,13 +11,13 @@ from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-
+from middleware import HallucinationLeakageGuard, PIIDetectionMiddleware
+from prompts import ORCHESTRATOR_PROMPT
+from subagents.agent_performance import agent_performance_subagent
 from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
-from subagents.agent_performance import agent_performance_subagent
+from tools.analysis_tools import final_review
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
-from prompts import ORCHESTRATOR_PROMPT
 
 _AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -40,7 +40,7 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
         name="call-analysis-orchestrator",
         model=model,
         system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[transcribe_call],
+        tools=[transcribe_call, final_review],
         subagents=[
             sentiment_subagent,
             topic_and_ae_subagent,
