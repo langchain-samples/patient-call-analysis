@@ -14,7 +14,7 @@ import re
 from datetime import datetime, timezone
 
 from langchain.agents.middleware.types import AgentMiddleware
-from langchain_core.messages import ToolMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 AUDIT_LOG_PATH = os.path.join(os.path.dirname(__file__), "output", "audit_log.json")
 
@@ -41,6 +41,8 @@ INTERNAL_TERMS = [
     "Salesforce case ID",
     "CRM ticket",
 ]
+
+REFERENCE_PATTERN = re.compile(r"\b(?:SF|SFDC|CRM|CASE|TICKET)-[A-Za-z0-9-]{4,}\b")
 
 
 def _load_audit_log() -> list:
@@ -140,7 +142,32 @@ class HallucinationLeakageGuard(AgentMiddleware):
 
     tools = []
 
-    def _check_response(self, content: str) -> tuple[str, list[dict]]:
+    def _source_content(self, request) -> str:
+        messages = list(getattr(request, "messages", []))
+        state = getattr(request, "state", {}) or {}
+        if isinstance(state, dict):
+            messages.extend(state.get("messages", []))
+
+        source_parts = []
+        for message in messages:
+            if isinstance(message, (HumanMessage, ToolMessage)):
+                content = message.content
+            elif isinstance(message, dict) and message.get("role") in {"user", "tool"}:
+                content = message.get("content")
+            else:
+                continue
+            if isinstance(content, str):
+                source_parts.append(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, str):
+                        source_parts.append(block)
+                    elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                        source_parts.append(block["text"])
+
+        return "\n".join(source_parts)
+
+    def _check_response(self, content: str, request=None) -> tuple[str, list[dict]]:
         """Check response content for leakage. Returns (modified_content, findings)."""
         findings = []
         modified = content
@@ -155,21 +182,39 @@ class HallucinationLeakageGuard(AgentMiddleware):
                 pattern = re.compile(re.escape(term), re.IGNORECASE)
                 modified = pattern.sub("[REDACTED-INTERNAL]", modified)
 
+        supplied_references = set(REFERENCE_PATTERN.findall(self._source_content(request))) if request else set()
+
+        def replace_reference(match):
+            reference = match.group(0)
+            if reference not in supplied_references:
+                findings.append({
+                    "type": "ungrounded_reference",
+                    "reference": reference,
+                })
+                return "[not available in the call record]"
+            return reference
+
+        modified = REFERENCE_PATTERN.sub(replace_reference, modified)
+
         return modified, findings
+
+    def _record_findings(self, findings: list[dict]):
+        for finding in findings:
+            _save_audit_entry({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "guardrail": "hallucination_leakage_guard",
+                "action": "content_redacted",
+                "findings": [finding],
+            })
 
     def wrap_model_call(self, request, handler):
         response = handler(request)
 
         if isinstance(response, AIMessage) and isinstance(response.content, str):
-            modified_content, findings = self._check_response(response.content)
+            modified_content, findings = self._check_response(response.content, request)
 
             if findings:
-                _save_audit_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "guardrail": "hallucination_leakage_guard",
-                    "action": "content_redacted",
-                    "findings": findings,
-                })
+                self._record_findings(findings)
                 response.content = modified_content
 
         return response
@@ -178,15 +223,10 @@ class HallucinationLeakageGuard(AgentMiddleware):
         response = await handler(request)
 
         if isinstance(response, AIMessage) and isinstance(response.content, str):
-            modified_content, findings = self._check_response(response.content)
+            modified_content, findings = self._check_response(response.content, request)
 
             if findings:
-                _save_audit_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "guardrail": "hallucination_leakage_guard",
-                    "action": "content_redacted",
-                    "findings": findings,
-                })
+                self._record_findings(findings)
                 response.content = modified_content
 
         return response

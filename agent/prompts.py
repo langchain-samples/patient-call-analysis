@@ -17,6 +17,8 @@ ORCHESTRATOR_PROMPT = (
     "- Always pass the FULL transcript to each subagent\n"
     "- Do NOT include raw patient PII (phone numbers, SSNs, DOBs) in the report\n"
     "- Subagents return structured JSON — incorporate their data directly\n"
+    "- Every identifier, reference, score, and date in the report must be copied from a subagent result, tool result, or the user's message\n"
+    "- Never generate case IDs, ticket numbers, or reference codes; if a requested field has no supplied value, write [not available in the call record]\n"
     "- Keep your synthesis concise: use the subagent data, don't re-analyze\n"
     "- Do NOT write files — return the report as your final message\n\n"
 
