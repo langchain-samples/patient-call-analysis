@@ -12,9 +12,11 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage, AIMessage
+from langgraph.config import get_config
 
 AUDIT_LOG_PATH = os.path.join(os.path.dirname(__file__), "output", "audit_log.json")
 
@@ -73,6 +75,58 @@ def _redact_pii(text: str) -> tuple[str, list[dict]]:
             redacted = redacted.replace(match, f"[REDACTED-{pii_type.upper()}]")
 
     return redacted, findings
+
+
+def build_trace_metadata(user_message: str, thread_id: str) -> dict[str, str]:
+    """Build bounded metadata for a patient call analysis trace."""
+    message = user_message.lower()
+    request_variant = (
+        "identified_report_request"
+        if any(term in message for term in ("report", "adverse event", "safety signal"))
+        else "routine_analysis"
+    )
+    return {
+        "thread_id": thread_id,
+        "environment": os.getenv("APP_ENV", "development"),
+        "request_variant": request_variant,
+    }
+
+
+def _message_text(message) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "") for block in content if isinstance(block, dict)
+        )
+    return ""
+
+
+class TraceMetadataMiddleware(AgentMiddleware):
+    """Attach bounded request metadata to the active runtime configuration."""
+
+    tools = []
+
+    def _attach_metadata(self, state):
+        config = get_config()
+        configurable = config.setdefault("configurable", {})
+        thread_id = configurable.get("thread_id") or f"call-analysis-{uuid4()}"
+        configurable["thread_id"] = thread_id
+        messages = state.get("messages", [])
+        user_message = _message_text(messages[-1]) if messages else ""
+        config["metadata"] = {
+            **config.get("metadata", {}),
+            **build_trace_metadata(user_message, thread_id),
+        }
+
+    def before_agent(self, state, runtime):
+        self._attach_metadata(state)
+        return None
+
+    async def abefore_agent(self, state, runtime):
+        self._attach_metadata(state)
+        return None
 
 
 class PIIDetectionMiddleware(AgentMiddleware):

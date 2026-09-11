@@ -6,6 +6,7 @@ mock analysis tools. Returns a structured JSON summary.
 """
 
 from tools.analysis_tools import analyze_sentiment
+from langchain_anthropic import ChatAnthropic
 
 sentiment_subagent = {
     "name": "sentiment_analysis",
@@ -32,6 +33,6 @@ sentiment_subagent = {
         "Compute averages and trends yourself from the data. Do NOT make extra tool calls. "
         "One call total, then respond with ONLY the JSON. No prose."
     ),
-    "model": "claude-haiku-4-5-20251001",
+    "model": ChatAnthropic(model="claude-haiku-4-5-20251001"),
     "tools": [analyze_sentiment],
 }

@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from deep_agent import create_orchestrator
+from middleware import build_trace_metadata
 
 
 def main():
@@ -38,7 +39,11 @@ def main():
     else:
         user_message = "Analyze the patient call. Use the demo transcript."
 
-    config = {"configurable": {"thread_id": f"call-analysis-{uuid.uuid4()}"}}
+    thread_id = f"call-analysis-{uuid.uuid4()}"
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "metadata": build_trace_metadata(user_message, thread_id),
+    }
 
     print("Starting patient call analysis...\n")
 

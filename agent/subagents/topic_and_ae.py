@@ -5,6 +5,8 @@ Merges topic extraction and AE/TC detection into a single subagent.
 Returns a structured JSON summary.
 """
 
+from langchain_anthropic import ChatAnthropic
+
 from tools.analysis_tools import (
     extract_topics,
     detect_adverse_events,
@@ -40,6 +42,6 @@ topic_and_ae_subagent = {
         "```\n\n"
         "Do NOT make extra tool calls. Three calls total, then respond with ONLY the JSON. No prose."
     ),
-    "model": "claude-haiku-4-5-20251001",
+    "model": ChatAnthropic(model="claude-haiku-4-5-20251001"),
     "tools": [extract_topics, detect_adverse_events, detect_technical_complaints],
 }

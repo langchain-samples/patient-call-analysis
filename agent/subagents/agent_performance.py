@@ -5,6 +5,8 @@ Reviews agent behavior against procedural checklists and SOPs
 using loaded SKILL.md files. Returns a structured JSON summary.
 """
 
+from langchain_anthropic import ChatAnthropic
+
 agent_performance_subagent = {
     "name": "agent_performance",
     "description": (
@@ -32,6 +34,6 @@ agent_performance_subagent = {
         "```\n\n"
         "Two file reads, then respond with ONLY the JSON. No prose."
     ),
-    "model": "claude-haiku-4-5-20251001",
+    "model": ChatAnthropic(model="claude-haiku-4-5-20251001"),
     "tools": [],
 }
