@@ -11,18 +11,19 @@ from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-
+from middleware import HallucinationLeakageGuard, PIIDetectionMiddleware
+from prompts import ORCHESTRATOR_PROMPT
+from subagents.agent_performance import agent_performance_subagent
 from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
-from subagents.agent_performance import agent_performance_subagent
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
-from prompts import ORCHESTRATOR_PROMPT
 
 _AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude-sonnet-4-5-20250929"):
+def create_orchestrator(
+    store: InMemoryStore | None = None, model: str = "claude-sonnet-4-5-20250929"
+):
     """Create and return the patient call analysis orchestrator agent.
 
     Args:
@@ -50,7 +51,12 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
         skills=[os.path.join(_AGENT_DIR, "skills") + "/"],
         store=store,
         checkpointer=MemorySaver(),
-        middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+        middleware=[
+            PIIDetectionMiddleware(
+                patient_name=os.getenv("PATIENT_NAME", "Margaret Chen")
+            ),
+            HallucinationLeakageGuard(),
+        ],
     )
 
     return agent, store
