@@ -11,8 +11,13 @@ build/
 # Environment variables
 .env
 
-# Agent output (generated audio, audit logs)
+# Agent output (generated audio, audit logs, analysis reports, scratch)
 agent/output/
+agent/tmp/
+agent/*_report.md
+
+# LangGraph Studio local cache
+.langgraph_api/
 
 # IDE
 .idea/

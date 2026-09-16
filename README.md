@@ -15,9 +15,9 @@ Orchestrator (Sonnet) ─── transcribe_call ──→ audio attachment + tra
     └── agent_performance (Haiku) ──→ JSON compliance scores against SOPs
 ```
 
-**Middleware pipeline:**
-- **PII Detection** (`wrap_tool_call`) — redacts phone numbers, SSNs, DOBs, member IDs from tool outputs
-- **Hallucination & Internal Data Leakage Guard** (`wrap_model_call`) — blocks internal company terms from LLM responses
+**Guardrails:**
+- **Hallucination & Internal Data Leakage Guard** (`middleware.py`, `wrap_model_call`) — scans LLM responses for hallucinated patient data and internal company terms, redacts them, and writes an entry to `agent/output/audit_log.json`
+- **Final Review** (`pii_review.py`, `final_review` tool) — a single-step traced LLM call that checks the draft report for required sections; runs as its own LangSmith span so the prompt can be iterated in Playground
 
 **Skills** (loaded by agent_performance subagent):
 - `sop-compliance-checklist` — 6-section call handling checklist with scoring guidelines
@@ -97,7 +97,8 @@ Results are tracked in LangSmith with experiment metadata for prompt version com
 │   ├── deep_agent.py         # Orchestrator configuration
 │   ├── prompts.py            # System prompt
 │   ├── mock_data.py          # Mock transcript and analysis data
-│   ├── middleware.py          # PII + leakage guard middleware
+│   ├── middleware.py          # Hallucination + internal leakage guard
+│   ├── pii_review.py          # final_review tool (traced report review)
 │   ├── subagents/
 │   │   ├── sentiment.py       # Sentiment analysis subagent
 │   │   ├── topic_and_ae.py    # Topic + AE/TC detection subagent

@@ -21,14 +21,15 @@ from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
 from subagents.agent_performance import agent_performance_subagent
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
+from pii_review import final_review
+from middleware import HallucinationLeakageGuard
 from prompts import ORCHESTRATOR_PROMPT
 
 graph = create_deep_agent(
     name="call-analysis-orchestrator",
     model="claude-sonnet-4-5-20250929",
     system_prompt=ORCHESTRATOR_PROMPT,
-    tools=[transcribe_call],
+    tools=[transcribe_call, final_review],
     subagents=[
         sentiment_subagent,
         topic_and_ae_subagent,
@@ -36,5 +37,5 @@ graph = create_deep_agent(
     ],
     backend=FilesystemBackend(root_dir=_AGENT_DIR, virtual_mode=True),
     skills=[os.path.join(_AGENT_DIR, "skills") + "/"],
-    middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+    middleware=[HallucinationLeakageGuard()],
 )

@@ -1,11 +1,11 @@
 """
 Guardrail middleware for the patient call analysis agent.
 
-Two middleware classes:
-  1. PIIDetectionMiddleware — wrap_tool_call: redacts patient PII
-     (phone numbers, SSNs, DOBs) from tool outputs before the LLM sees them.
-  2. HallucinationLeakageGuard — wrap_model_call: scans LLM responses for
-     hallucinated patient data and internal company information leakage.
+HallucinationLeakageGuard — wrap_model_call: scans LLM responses for
+hallucinated patient data and internal company information leakage.
+
+PII review is handled by the final_review tool (see pii_review.py),
+which runs as a traced LLM call so the prompt can be iterated in LangSmith Playground.
 """
 
 import json
@@ -14,20 +14,9 @@ import re
 from datetime import datetime, timezone
 
 from langchain.agents.middleware.types import AgentMiddleware
-from langchain_core.messages import ToolMessage, AIMessage
+from langchain_core.messages import AIMessage
 
 AUDIT_LOG_PATH = os.path.join(os.path.dirname(__file__), "output", "audit_log.json")
-
-PII_PATTERNS = {
-    "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
-    "ssn": re.compile(r"\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b"),
-    "dob": re.compile(
-        r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)"
-        r"\s+\d{1,2},?\s+\d{4}\b",
-        re.IGNORECASE,
-    ),
-    "member_id": re.compile(r"\bPAT-\d{8}\b"),
-}
 
 INTERNAL_TERMS = [
     "Project Titan",
@@ -56,77 +45,6 @@ def _save_audit_entry(entry: dict):
     log.append(entry)
     with open(AUDIT_LOG_PATH, "w") as f:
         json.dump(log, f, indent=2)
-
-
-def _redact_pii(text: str) -> tuple[str, list[dict]]:
-    """Scan text for PII patterns and redact matches.
-
-    Returns (redacted_text, list_of_findings).
-    """
-    findings = []
-    redacted = text
-
-    for pii_type, pattern in PII_PATTERNS.items():
-        matches = pattern.findall(redacted)
-        for match in matches:
-            findings.append({"type": pii_type, "matched": match})
-            redacted = redacted.replace(match, f"[REDACTED-{pii_type.upper()}]")
-
-    return redacted, findings
-
-
-class PIIDetectionMiddleware(AgentMiddleware):
-    """Redacts patient PII from tool outputs before the LLM processes them.
-
-    Scans tool results for phone numbers, SSNs, dates of birth, and member IDs.
-    Redacts matches and logs each detection to the audit trail.
-    """
-
-    tools = []
-
-    def wrap_tool_call(self, request, handler):
-        result = handler(request)
-
-        if isinstance(result, ToolMessage) and isinstance(result.content, str):
-            redacted_content, findings = _redact_pii(result.content)
-
-            if findings:
-                tool_name = request.tool_call["name"]
-                _save_audit_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "guardrail": "pii_detection",
-                    "tool": tool_name,
-                    "action": "pii_redacted",
-                    "findings": findings,
-                })
-                return ToolMessage(
-                    content=redacted_content,
-                    tool_call_id=request.tool_call["id"],
-                )
-
-        return result
-
-    async def awrap_tool_call(self, request, handler):
-        result = await handler(request)
-
-        if isinstance(result, ToolMessage) and isinstance(result.content, str):
-            redacted_content, findings = _redact_pii(result.content)
-
-            if findings:
-                tool_name = request.tool_call["name"]
-                _save_audit_entry({
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "guardrail": "pii_detection",
-                    "tool": tool_name,
-                    "action": "pii_redacted",
-                    "findings": findings,
-                })
-                return ToolMessage(
-                    content=redacted_content,
-                    tool_call_id=request.tool_call["id"],
-                )
-
-        return result
 
 
 class HallucinationLeakageGuard(AgentMiddleware):

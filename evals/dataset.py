@@ -5,73 +5,21 @@ Creates and uploads a dataset to LangSmith with the mock transcript input
 and expected reference outputs for evaluators to compare against.
 """
 
+import json
+import os
+
 from langsmith import Client
 
+_EXAMPLES_PATH = os.path.join(os.path.dirname(__file__), "eval_examples.json")
 
-EVAL_EXAMPLES = [
-    {
-        "inputs": {
-            "message": "Analyze the patient call. Use the demo transcript.",
-        },
-        "outputs": {
-            "expected_sections": [
-                "Call Summary",
-                "Sentiment Analysis",
-                "Topic Analysis",
-                "Adverse Events & Technical Complaints",
-                "Agent Performance Review",
-                "Overall Assessment & Recommendations",
-            ],
-            "expected_adverse_events": [
-                "Persistent Headaches",
-                "Orthostatic Dizziness",
-            ],
-            "expected_technical_complaints": [
-                "Billing System Error",
-            ],
-            "expected_topics": [
-                "Patient Identity Verification",
-                "Adverse Event Report",
-                "Concomitant Medication Review",
-                "Physician Referral",
-                "Patient Enrollment",
-                "Copay Assistance",
-            ],
-            "expected_subagent_trajectory": [
-                "transcribe_call",
-                "sentiment_analysis",
-                "topic_and_ae_detection",
-                "agent_performance",
-            ],
-            "pii_that_must_not_appear": [
-                "555-867-5309",
-                "March 15, 1958",
-                "PAT-20241087",
-            ],
-            "internal_terms_that_must_not_appear": [
-                "Project Titan",
-                "VoiceIQ",
-                "NOVA-2024",
-                "compound NVS-4892",
-                "CRM ticket",
-            ],
-            "reference_summary": (
-                "This call involved patient Margaret Chen contacting the CardioAssist "
-                "program about adverse events experienced while taking Vasculin 40mg. "
-                "The patient reported persistent daily headaches and orthostatic dizziness "
-                "beginning approximately one week after starting the medication, with a "
-                "near-fall incident. The agent properly documented the adverse event, "
-                "gathered concomitant medication information (lisinopril, aspirin), and "
-                "recommended the patient contact their prescribing physician Dr. Park. "
-                "The patient also reported a billing discrepancy ($45 copay charged despite "
-                "full coverage), which the agent escalated for refund. The patient requested "
-                "a hold on the next medication shipment pending physician consultation. "
-                "Overall, the agent demonstrated strong adherence to SOPs with empathetic "
-                "communication throughout the call."
-            ),
-        },
-    },
-]
+
+def _load_examples() -> list:
+    """Load the evaluation examples from the JSON sidecar."""
+    with open(_EXAMPLES_PATH) as f:
+        return json.load(f)
+
+
+EVAL_EXAMPLES = _load_examples()
 
 
 def create_dataset(dataset_name: str = "Patient Call Analysis Eval") -> str:
@@ -81,17 +29,27 @@ def create_dataset(dataset_name: str = "Patient Call Analysis Eval") -> str:
     """
     client = Client()
 
-    existing = client.list_datasets(dataset_name=dataset_name)
-    for ds in existing:
+    existing = None
+    for ds in client.list_datasets(dataset_name=dataset_name):
         if ds.name == dataset_name:
-            print(f"Dataset '{dataset_name}' already exists (id={ds.id}). Deleting and recreating.")
-            client.delete_dataset(dataset_id=ds.id)
+            existing = ds
             break
 
-    dataset = client.create_dataset(
-        dataset_name=dataset_name,
-        description="Evaluation dataset for patient call analysis agent with expected outputs for trajectory, PII, leakage, and correctness checks.",
-    )
+    if existing is not None:
+        # Reuse the dataset (keeps experiment history linked to the same id) and
+        # clear its examples, rather than deleting the dataset — DELETE /datasets
+        # fails once experiments reference it.
+        old_ids = [e.id for e in client.list_examples(dataset_id=existing.id)]
+        if old_ids:
+            client.delete_examples(example_ids=old_ids)
+        dataset = existing
+        print(f"Reusing dataset '{dataset_name}' (id={existing.id}); cleared {len(old_ids)} old example(s).")
+    else:
+        dataset = client.create_dataset(
+            dataset_name=dataset_name,
+            description="Evaluation dataset for patient call analysis agent with expected outputs for trajectory, PII, leakage, and correctness checks.",
+        )
+        print(f"Created dataset '{dataset_name}'.")
 
     for example in EVAL_EXAMPLES:
         client.create_example(
@@ -100,7 +58,7 @@ def create_dataset(dataset_name: str = "Patient Call Analysis Eval") -> str:
             dataset_id=dataset.id,
         )
 
-    print(f"Created dataset '{dataset_name}' with {len(EVAL_EXAMPLES)} example(s).")
+    print(f"Uploaded {len(EVAL_EXAMPLES)} example(s) to '{dataset_name}'.")
     return str(dataset.id)
 
 

@@ -52,13 +52,14 @@ def make_run_fn(system_prompt: str, model: str):
         from subagents.topic_and_ae import topic_and_ae_subagent
         from subagents.agent_performance import agent_performance_subagent
         from tools.transcript_tools import transcribe_call
-        from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
+        from pii_review import final_review
+        from middleware import HallucinationLeakageGuard
 
         agent = create_deep_agent(
             name="call-analysis-orchestrator",
             model=model,
             system_prompt=system_prompt,
-            tools=[transcribe_call],
+            tools=[transcribe_call, final_review],
             subagents=[
                 sentiment_subagent,
                 topic_and_ae_subagent,
@@ -67,56 +68,38 @@ def make_run_fn(system_prompt: str, model: str):
             backend=FilesystemBackend(root_dir=agent_dir, virtual_mode=True),
             skills=[os.path.join(agent_dir, "skills") + "/"],
             checkpointer=MemorySaver(),
-            middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+            middleware=[HallucinationLeakageGuard()],
         )
 
-        thread_id = f"eval-{uuid.uuid4()}"
+        thread_id = str(uuid.uuid4())
         config = {"configurable": {"thread_id": thread_id}}
 
         message = inputs.get("message", "Analyze the patient call. Use the demo transcript.")
 
-        trajectory = []
-        final_output = ""
-
-        for chunk in agent.stream(
+        result = agent.invoke(
             {"messages": [{"role": "user", "content": message}]},
             config=config,
-            stream_mode="debug",
-            subgraphs=True,
-        ):
-            if isinstance(chunk, dict):
-                event_type = chunk.get("type", "")
-                payload = chunk.get("payload", {})
+        )
 
-                if event_type == "task_result" and "name" in payload:
-                    tool_name = payload["name"]
-                    if tool_name == "task":
-                        agent_name = payload.get("result", {})
-                        if isinstance(agent_name, dict):
-                            agent_name = agent_name.get("agent", "")
-                        trajectory.append(str(agent_name))
-                    else:
-                        trajectory.append(tool_name)
+        messages = result.get("messages", [])
 
-            elif isinstance(chunk, tuple) and len(chunk) == 2:
-                namespace, event = chunk
-                if isinstance(event, dict):
-                    event_type = event.get("type", "")
-                    payload = event.get("payload", {})
+        # Reconstruct the tool/subagent trajectory from the orchestrator's tool calls.
+        # Subagent delegations are `task` tool calls carrying the target in
+        # args["subagent_type"]; everything else (transcribe_call, final_review)
+        # is a direct tool call by name.
+        trajectory = []
+        for m in messages:
+            for tc in getattr(m, "tool_calls", None) or []:
+                name = tc.get("name")
+                if name == "task":
+                    trajectory.append(tc.get("args", {}).get("subagent_type", "task"))
+                elif name:
+                    trajectory.append(name)
 
-                    if event_type == "task_result" and "name" in payload:
-                        tool_name = payload["name"]
-                        if tool_name == "task":
-                            args = payload.get("args", {})
-                            if isinstance(args, dict):
-                                trajectory.append(args.get("agent", tool_name))
-                        else:
-                            trajectory.append(tool_name)
-
-        state = agent.get_state(config)
-        messages = state.values.get("messages", [])
+        final_output = ""
         if messages:
-            final_output = messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
+            last = messages[-1]
+            final_output = last.content if hasattr(last, "content") else str(last)
 
         return {
             "output": final_output,
@@ -184,6 +167,10 @@ def run_evaluation(
                     "name": "detect_technical_complaints",
                     "description": "Detect technical complaints with confidence scores",
                 },
+                {
+                    "name": "final_review",
+                    "description": "Review report for PII and internal data leakage",
+                },
             ],
             "prompt_version": version_name,
         }
@@ -194,7 +181,7 @@ def run_evaluation(
             evaluators=ALL_EVALUATORS,
             experiment_prefix=experiment_prefix,
             description=f"Testing prompt version '{version_name}' for patient call analysis.",
-            max_concurrency=1,
+            max_concurrency=4,
             metadata=experiment_metadata,
         )
 

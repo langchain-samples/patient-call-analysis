@@ -16,7 +16,8 @@ from subagents.sentiment import sentiment_subagent
 from subagents.topic_and_ae import topic_and_ae_subagent
 from subagents.agent_performance import agent_performance_subagent
 from tools.transcript_tools import transcribe_call
-from middleware import PIIDetectionMiddleware, HallucinationLeakageGuard
+from pii_review import final_review
+from middleware import HallucinationLeakageGuard
 from prompts import ORCHESTRATOR_PROMPT
 
 _AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +41,7 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
         name="call-analysis-orchestrator",
         model=model,
         system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[transcribe_call],
+        tools=[transcribe_call, final_review],
         subagents=[
             sentiment_subagent,
             topic_and_ae_subagent,
@@ -50,7 +51,7 @@ def create_orchestrator(store: InMemoryStore | None = None, model: str = "claude
         skills=[os.path.join(_AGENT_DIR, "skills") + "/"],
         store=store,
         checkpointer=MemorySaver(),
-        middleware=[PIIDetectionMiddleware(), HallucinationLeakageGuard()],
+        middleware=[HallucinationLeakageGuard()],
     )
 
     return agent, store

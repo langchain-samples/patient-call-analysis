@@ -36,9 +36,9 @@ def main():
     if args.audio:
         user_message = f"Analyze the patient call from this audio file: {args.audio}"
     else:
-        user_message = "Analyze the patient call. Use the demo transcript."
+        user_message = "Analyze the patient call."
 
-    config = {"configurable": {"thread_id": f"call-analysis-{uuid.uuid4()}"}}
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     print("Starting patient call analysis...\n")
 
