@@ -15,6 +15,9 @@ build/
 agent/output/
 agent/tmp/
 agent/*_report.md
+agent/*/output/
+agent/*/tmp/
+agent/*/*_report.md
 
 # LangGraph Studio local cache
 .langgraph_api/

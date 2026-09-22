@@ -1,6 +1,6 @@
 # Patient Call Analysis Agent
 
-A LangChain Deep Agent that analyzes pharmaceutical patient support calls using three specialized subagents, with LangSmith tracing, audio file attachments, and an offline evaluation suite.
+A patient support call analysis agent implemented with both LangChain Deep Agents and Strands Agents. Both implementations use the same three specialists and route Claude calls through the LangSmith LLM Gateway.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ A LangChain Deep Agent that analyzes pharmaceutical patient support calls using 
 
 
 ```
-Orchestrator (Sonnet) ─── transcribe_call ──→ audio attachment + transcript
+Orchestrator (Sonnet) ─── transcribe_call ──→ transcript
     │
     ├── sentiment_analysis (Haiku) ──→ JSON sentiment scores & trends
     ├── topic_and_ae_detection (Haiku) ──→ JSON topics, adverse events, technical complaints
@@ -16,14 +16,14 @@ Orchestrator (Sonnet) ─── transcribe_call ──→ audio attachment + tra
 ```
 
 **Guardrails:**
-- **Hallucination & Internal Data Leakage Guard** (`middleware.py`, `wrap_model_call`) — scans LLM responses for hallucinated patient data and internal company terms, redacts them, and writes an entry to `agent/output/audit_log.json`
-- **Final Review** (`pii_review.py`, `final_review` tool) — a single-step traced LLM call that checks the draft report for required sections; runs as its own LangSmith span so the prompt can be iterated in Playground
+- **Hallucination & Internal Data Leakage Guard** (`middleware.py`) — scans LLM responses for internal company terms, redacts them, and writes an audit entry under the selected implementation's `output/` directory
+- **Final Review** (`pii_review.py`, `final_review` tool) — a single-step LLM call that checks the draft report for required sections
 
 **Skills** (loaded by agent_performance subagent):
 - `sop-compliance-checklist` — 6-section call handling checklist with scoring guidelines
 - `adverse-event-reporting-guidelines` — AE/TC identification, severity classification, compliance requirements
 
-**Audio:** Generates a multi-voice MP3 recording from the transcript using macOS TTS (`say` + `sox` + `lame`), attached to the LangSmith trace via `@traceable` with `Attachment`.
+The Deep Agents implementation retains its existing audio attachment and LangSmith evaluation support. The Strands implementation exports its agent, event-loop, model, and tool spans to LangSmith through OpenTelemetry.
 
 ## Setup
 
@@ -33,15 +33,22 @@ uv sync
 
 # Configure environment
 cp .env.example .env
-# Add your ANTHROPIC_API_KEY and LANGSMITH_API_KEY to .env
+# Add your LANGSMITH_API_KEY to .env
 ```
 
 ### Required environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude models |
-| `LANGSMITH_API_KEY` | LangSmith API key for tracing and evals |
+| `LANGSMITH_API_KEY` | Workspace-scoped key with LLM Gateway access |
+| `LANGSMITH_GATEWAY` | Routes supported LangChain models through the Gateway |
+| `LANGSMITH_GATEWAY_URL` | Direct Anthropic Gateway endpoint used by Strands |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | LangSmith OpenTelemetry ingestion endpoint |
+| `OTEL_EXPORTER_OTLP_HEADERS` | LangSmith API key and destination project for Strands traces |
+
+The LangSmith workspace must have an Anthropic provider secret configured and the API key must have Gateway invoke access.
+
+Strands telemetry includes prompts, completions, and tool inputs and outputs. The configured `Langsmith-Project` receives application-level spans; Gateway model-call traces may also appear in the Gateway-managed tracing project.
 
 ### System dependencies (macOS)
 
@@ -55,14 +62,17 @@ brew install sox lame  # For audio generation
 
 ```bash
 uv run python3 run_agent.py
+uv run python3 run_agent.py --implementation strands
 uv run python3 run_agent.py --audio path/to/call.mp3
 ```
 
 ### Run in LangGraph Studio
 
-Open the project in LangGraph Studio — it reads `langgraph.json` which points to `agent/graph.py`.
+Open the Deep Agents implementation in LangGraph Studio — `langgraph.json` points to `agent/deepagents/graph.py`.
 
 ### Run evaluations
+
+The current evaluation runner targets the Deep Agents implementation. Strands application tracing is enabled, but Strands evaluation support is not yet wired into this runner.
 
 ```bash
 # Run all 4 prompt versions
@@ -93,23 +103,16 @@ Results are tracked in LangSmith with experiment metadata for prompt version com
 
 ```
 ├── agent/
-│   ├── graph.py              # LangGraph Studio entry point
-│   ├── deep_agent.py         # Orchestrator configuration
-│   ├── prompts.py            # System prompt
-│   ├── mock_data.py          # Mock transcript and analysis data
-│   ├── middleware.py          # Hallucination + internal leakage guard
-│   ├── pii_review.py          # final_review tool (traced report review)
-│   ├── subagents/
-│   │   ├── sentiment.py       # Sentiment analysis subagent
-│   │   ├── topic_and_ae.py    # Topic + AE/TC detection subagent
-│   │   └── agent_performance.py  # SOP compliance review subagent
-│   ├── tools/
-│   │   ├── transcript_tools.py   # Audio generation + LangSmith attachment
-│   │   ├── analysis_tools.py     # Mock analysis tools
-│   │   └── sandbox_sentiment.py  # LangSmith sandbox tool
-│   └── skills/
-│       ├── sop-compliance-checklist/SKILL.md
-│       └── adverse-event-reporting-guidelines/SKILL.md
+│   ├── deepagents/            # Deep Agents implementation and Studio graph
+│   │   ├── subagents/
+│   │   ├── tools/
+│   │   └── skills/
+│   └── strands/               # Strands Agents implementation
+│       ├── strands_agent.py   # Orchestrator configuration
+│       ├── model.py           # LangSmith Gateway model configuration
+│       ├── subagents/
+│       ├── tools/
+│       └── skills/
 ├── evals/
 │   ├── run_evals.py           # Evaluation runner
 │   ├── evaluators.py          # 5 evaluators

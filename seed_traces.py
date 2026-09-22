@@ -10,6 +10,7 @@ Creates traces with:
 Usage:
     python seed_traces.py             # Default 50 traces, 5 concurrent
     python seed_traces.py --count 20
+    python seed_traces.py --implementation strands --count 20
     python seed_traces.py --count 50 --concurrency 10
 """
 
@@ -20,7 +21,7 @@ import uuid
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agent"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agent", "deepagents"))
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -157,58 +158,74 @@ def _build_trace_configs(count: int) -> list[dict]:
     return configs
 
 
-def run_single_trace(trace_num: int, total: int, config: dict) -> tuple[int, bool, str]:
+def run_single_trace(
+    trace_num: int,
+    total: int,
+    config: dict,
+    implementation: str,
+) -> tuple[int, bool, str]:
     """Run a single agent invocation. Returns (trace_num, success, detail)."""
     try:
-        from deepagents import create_deep_agent
-        from deepagents.backends import FilesystemBackend
-        from langgraph.checkpoint.memory import MemorySaver
-        from langgraph.store.memory import InMemoryStore
-
-        agent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "agent"))
-        sys.path.insert(0, agent_dir)
-
-        from subagents.sentiment import sentiment_subagent
-        from subagents.topic_and_ae import topic_and_ae_subagent
-        from subagents.agent_performance import agent_performance_subagent
-        from tools.transcript_tools import transcribe_call
-        from pii_review import final_review
-
         system_prompt = PROMPT_VERSIONS[config["prompt"]]
-
-        middleware_list = []
-        if config["middleware"]:
-            from middleware import HallucinationLeakageGuard
-            middleware_list = [HallucinationLeakageGuard()]
-
-        agent = create_deep_agent(
-            name="call-analysis-orchestrator",
-            model="claude-sonnet-4-5-20250929",
-            system_prompt=system_prompt,
-            tools=[transcribe_call, final_review],
-            subagents=[
-                sentiment_subagent,
-                topic_and_ae_subagent,
-                agent_performance_subagent,
-            ],
-            backend=FilesystemBackend(root_dir=agent_dir, virtual_mode=True),
-            skills=[os.path.join(agent_dir, "skills") + "/"],
-            store=InMemoryStore(),
-            checkpointer=MemorySaver(),
-            middleware=middleware_list,
-        )
-
-        thread_id = str(uuid.uuid4())
-        run_config = {"configurable": {"thread_id": thread_id}}
-
         start = time.time()
-        result = agent.invoke(
-            {"messages": [{"role": "user", "content": config["message"]}]},
-            config=run_config,
-        )
+
+        if implementation == "strands":
+            from agent.strands import create_orchestrator
+
+            agent = create_orchestrator(
+                system_prompt=system_prompt,
+                enable_guard=config["middleware"],
+            )
+            output = str(agent(config["message"])).strip()
+        else:
+            from deepagents import create_deep_agent
+            from deepagents.backends import FilesystemBackend
+            from langgraph.checkpoint.memory import MemorySaver
+            from langgraph.store.memory import InMemoryStore
+
+            agent_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "agent", "deepagents")
+            )
+            sys.path.insert(0, agent_dir)
+
+            from subagents.sentiment import sentiment_subagent
+            from subagents.topic_and_ae import topic_and_ae_subagent
+            from subagents.agent_performance import agent_performance_subagent
+            from tools.transcript_tools import transcribe_call
+            from pii_review import final_review
+
+            middleware_list = []
+            if config["middleware"]:
+                from middleware import HallucinationLeakageGuard
+                middleware_list = [HallucinationLeakageGuard()]
+
+            agent = create_deep_agent(
+                name="call-analysis-orchestrator",
+                model="claude-sonnet-4-5-20250929",
+                system_prompt=system_prompt,
+                tools=[transcribe_call, final_review],
+                subagents=[
+                    sentiment_subagent,
+                    topic_and_ae_subagent,
+                    agent_performance_subagent,
+                ],
+                backend=FilesystemBackend(root_dir=agent_dir, virtual_mode=True),
+                skills=[os.path.join(agent_dir, "skills") + "/"],
+                store=InMemoryStore(),
+                checkpointer=MemorySaver(),
+                middleware=middleware_list,
+            )
+
+            thread_id = str(uuid.uuid4())
+            run_config = {"configurable": {"thread_id": thread_id}}
+            result = agent.invoke(
+                {"messages": [{"role": "user", "content": config["message"]}]},
+                config=run_config,
+            )
+            output = result["messages"][-1].content
+
         elapsed = time.time() - start
 
-        output = result["messages"][-1].content
         has_report = "Call Analysis Report" in output or "analysis" in output.lower()
         label = config["label"]
         return (trace_num, True, f"[{label}] done in {elapsed:.1f}s (report={'yes' if has_report else 'no'})")
@@ -221,6 +238,12 @@ def main():
     parser.add_argument("--count", type=int, default=50, help="Number of traces to create")
     parser.add_argument("--concurrency", type=int, default=5, help="Max concurrent invocations")
     parser.add_argument(
+        "--implementation",
+        choices=["deepagents", "strands"],
+        default="deepagents",
+        help="Agent implementation to seed",
+    )
+    parser.add_argument(
         "--project",
         type=str,
         default=None,
@@ -231,16 +254,29 @@ def main():
     if args.project:
         os.environ["LANGSMITH_PROJECT"] = args.project
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("Error: ANTHROPIC_API_KEY required. Set it in .env")
+    required_key = (
+        "LANGSMITH_API_KEY"
+        if args.implementation == "strands"
+        else "ANTHROPIC_API_KEY"
+    )
+    if not os.environ.get(required_key):
+        print(f"Error: {required_key} required. Set it in .env")
         sys.exit(1)
+
+    if args.implementation == "strands":
+        from agent.strands.telemetry import setup_telemetry
+
+        setup_telemetry()
 
     configs = _build_trace_configs(args.count)
 
     # Print distribution
     from collections import Counter
     dist = Counter(c["label"] for c in configs)
-    print(f"Seeding {len(configs)} traces into project '{os.environ.get('LANGSMITH_PROJECT')}' with concurrency={args.concurrency}")
+    print(
+        f"Seeding {len(configs)} {args.implementation} traces into project "
+        f"'{os.environ.get('LANGSMITH_PROJECT')}' with concurrency={args.concurrency}"
+    )
     for label, n in sorted(dist.items()):
         print(f"  {label}: {n}")
     print()
@@ -251,7 +287,13 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
         futures = {
-            executor.submit(run_single_trace, i, len(configs), configs[i]): i
+            executor.submit(
+                run_single_trace,
+                i,
+                len(configs),
+                configs[i],
+                args.implementation,
+            ): i
             for i in range(len(configs))
         }
 
