@@ -16,7 +16,7 @@ import os
 import sys
 import uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "agent", "deepagents"))
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
@@ -45,7 +45,9 @@ def make_run_fn(system_prompt: str, model: str):
         from deepagents.backends import FilesystemBackend
         from langgraph.checkpoint.memory import MemorySaver
 
-        agent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "agent"))
+        agent_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "agent", "deepagents")
+        )
         sys.path.insert(0, agent_dir)
 
         from subagents.sentiment import sentiment_subagent
