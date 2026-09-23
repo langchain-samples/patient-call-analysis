@@ -85,6 +85,21 @@ uv run python3 evals/run_evals.py --prompt-version v1_detailed
 uv run python3 evals/run_evals.py --model claude-sonnet-4-5-20250929
 ```
 
+### Evals walkthrough notebook
+
+`evals/evals_walkthrough.ipynb` is a step-by-step teaching version of the eval suite. It
+breaks an eval into its pieces — dataset, target, evaluators, `evaluate()` — and builds each
+of the 5 evaluators one at a time against a fast toy target, then compares the 4 Prompt Hub
+prompt versions with a lightweight prompt-driven agent. Every experiment logs to LangSmith.
+
+```bash
+uv run jupyter notebook evals/evals_walkthrough.ipynb
+```
+
+Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY` in `.env`. If you use a personal
+access token, also set `LANGSMITH_WORKSPACE_ID` so the dataset and experiments land in the
+right workspace.
+
 ## Evaluation Suite
 
 Tests 4 system prompt versions (`v1_detailed`, `v2_minimal`, `v3_safety_focused`, `v4_structured`) with 5 evaluators:
@@ -115,6 +130,7 @@ Results are tracked in LangSmith with experiment metadata for prompt version com
 │       └── skills/
 ├── evals/
 │   ├── run_evals.py           # Evaluation runner
+│   ├── evals_walkthrough.ipynb # Step-by-step evals teaching notebook
 │   ├── evaluators.py          # 5 evaluators
 │   ├── dataset.py             # LangSmith dataset with expected outputs
 │   └── prompt_versions.py     # 4 prompt variants + Prompt Hub scaffolding
