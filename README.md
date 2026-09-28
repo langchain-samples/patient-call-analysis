@@ -2,11 +2,6 @@
 
 A patient support call analysis agent implemented with both LangChain Deep Agents and Strands Agents. Both implementations use the same three specialists and route Claude calls through the LangSmith LLM Gateway.
 
-## Architecture
-
-<img width="1926" height="1444" alt="image" src="https://github.com/user-attachments/assets/9c1385ec-10f7-4462-9e2a-f207d5c257b1" />
-
-
 ```
 Orchestrator (Sonnet) ─── transcribe_call ──→ transcript
     │
