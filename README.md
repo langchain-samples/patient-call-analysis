@@ -84,8 +84,9 @@ uv run python3 evals/run_evals.py --model claude-sonnet-4-5-20250929
 
 `evals/evals_walkthrough.ipynb` is a step-by-step teaching version of the eval suite. It
 breaks an eval into its pieces — dataset, target, evaluators, `evaluate()` — and builds each
-of the 5 evaluators one at a time against a fast toy target, then compares the 4 Prompt Hub
-prompt versions with a lightweight prompt-driven agent. Every experiment logs to LangSmith.
+of the 5 evaluators one at a time against a fast toy target. It then compares the 4 Prompt Hub
+prompt versions, sweeps models to weigh quality against cost, and runs a pairwise
+(`evaluate_comparative`) head-to-head. Every experiment logs to LangSmith.
 
 ```bash
 uv run jupyter notebook evals/evals_walkthrough.ipynb
