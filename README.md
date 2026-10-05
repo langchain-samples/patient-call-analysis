@@ -65,6 +65,16 @@ uv run python3 run_agent.py --audio path/to/call.mp3
 
 Open the Deep Agents implementation in LangGraph Studio — `langgraph.json` points to `agent/deepagents/graph.py`.
 
+### Reasoning + to-do-list tracing demo
+
+`reasoning_agent.py` is a small Deep Agent that plans with the built-in `write_todos` to-do list and runs on a Claude model with extended *thinking* enabled, so both the plan and the model's reasoning show up natively in the LangSmith trace.
+
+```bash
+uv run python3 reasoning_agent.py
+```
+
+Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY`. The trace lands in the `reasoning-agent-demo` project — open a model call to see its `reasoning` block, and the `write_todos` calls to see the plan's `pending → in_progress → completed` transitions.
+
 ### Run evaluations
 
 The current evaluation runner targets the Deep Agents implementation. Strands application tracing is enabled, but Strands evaluation support is not yet wired into this runner.
