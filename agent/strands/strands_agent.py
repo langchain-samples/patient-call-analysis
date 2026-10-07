@@ -22,6 +22,7 @@ def create_orchestrator(
     *,
     system_prompt: str = ORCHESTRATOR_PROMPT,
     enable_guard: bool = True,
+    enable_thinking: bool = True,
 ) -> Agent:
     """Create and return the Strands patient call analysis orchestrator."""
     setup_telemetry()
@@ -38,7 +39,7 @@ def create_orchestrator(
 
     return Agent(
         name="call-analysis-orchestrator",
-        model=create_gateway_model(model),
+        model=create_gateway_model(model, enable_thinking=enable_thinking),
         system_prompt=system_prompt,
         tools=[
             transcribe_call,

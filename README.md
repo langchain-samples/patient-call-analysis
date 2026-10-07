@@ -18,7 +18,7 @@ Orchestrator (Sonnet) ─── transcribe_call ──→ transcript
 - `sop-compliance-checklist` — 6-section call handling checklist with scoring guidelines
 - `adverse-event-reporting-guidelines` — AE/TC identification, severity classification, compliance requirements
 
-The Deep Agents implementation retains its existing audio attachment and LangSmith evaluation support. The Strands implementation exports its agent, event-loop, model, and tool spans to LangSmith through OpenTelemetry.
+The Deep Agents implementation retains its existing audio attachment and LangSmith evaluation support. The Strands implementation exports its agent, event-loop, model, and tool spans to LangSmith through OpenTelemetry — including model **reasoning** (extended thinking), which renders as a Reasoning block on the orchestrator's model spans (requires `langsmith>=0.10.9`).
 
 ## Setup
 
@@ -75,6 +75,24 @@ uv run python3 reasoning_agent.py
 
 Requires `LANGSMITH_API_KEY` and `ANTHROPIC_API_KEY`. The trace lands in the `reasoning-agent-demo` project — open a model call to see its `reasoning` block, and the `write_todos` calls to see the plan's `pending → in_progress → completed` transitions.
 
+### Reasoning in the Strands trace
+
+The Strands orchestrator (Sonnet) runs with extended *thinking* enabled, so its reasoning is
+traced to LangSmith and rendered as a **Reasoning** block. It is wired in
+`agent/strands/model.py` (`create_gateway_model(..., enable_thinking=True)`) and toggled per
+run via `create_orchestrator(enable_thinking=...)` in `agent/strands/strands_agent.py` (on by
+default). The subagents (Haiku) keep thinking off, so reasoning shows on the orchestrator's
+model calls.
+
+```bash
+uv run python3 run_agent.py --implementation strands
+```
+
+Requires `langsmith>=0.10.9`, whose Strands OpenTelemetry exporter converts Strands'
+`reasoningContent` into LangSmith's reasoning format. Open the latest
+`call-analysis-orchestrator` trace in your `LANGSMITH_PROJECT`, then open an orchestrator
+model span to see the **Reasoning** section.
+
 ### Run evaluations
 
 The current evaluation runner targets the Deep Agents implementation. Strands application tracing is enabled, but Strands evaluation support is not yet wired into this runner.
@@ -130,7 +148,7 @@ Results are tracked in LangSmith with experiment metadata for prompt version com
 │   │   └── skills/
 │   └── strands/               # Strands Agents implementation
 │       ├── strands_agent.py   # Orchestrator configuration
-│       ├── model.py           # LangSmith Gateway model configuration
+│       ├── model.py           # LangSmith Gateway model config + extended thinking (reasoning)
 │       ├── subagents/
 │       ├── tools/
 │       └── skills/
